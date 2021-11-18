@@ -10,8 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
-#define BUFSIZE 8192  //一次讀取的buffer大小（不可小於1024）
-
+#define BUFSIZE 2048  //一次讀取的buffer大小（不可小於1024）
 
 struct {
 	char *ext;
@@ -38,10 +37,10 @@ void handle_socket(int fd){
 	int i;
 	int browser=0;//0:未知 1:chrome 2:firefox
 	bzero(buffer,strlen(buffer));
-	ret = read(fd,buffer,BUFSIZE);   //讀取瀏覽器要求 
+	ret = recv(fd,buffer,BUFSIZE,0);   //讀取瀏覽器要求 
 	//printf("--------------------\n%ld\n%s\n--------------------\n",ret,buffer);
 	//while(ret==BUFSIZE){//輸出整個封包
-	//	ret = read(fd,buffer,BUFSIZE);   //讀取瀏覽器要求 
+	//	ret = recv(fd,buffer,BUFSIZE,0);   //讀取瀏覽器要求 
 	//	printf("--------------------\n%s\n--------------------\n",buffer);
 	//}
 	if (ret==0||ret==-1) {//網路連線有問題，所以結束程式
@@ -90,12 +89,11 @@ void handle_socket(int fd){
 		exit(1);
 	}
 
-	
 	//處理POST
 	
 	if(status==2){
-		if(access("./img",F_OK)){
-			mkdir("./img",509);
+		if(access("./file",F_OK)){
+			mkdir("./file",509);
 		}
 		long file_len;
 		char filelenstr[20];
@@ -118,16 +116,19 @@ void handle_socket(int fd){
 		
 		if(browser==1){//chrome
 			if(strstr(ptr,boundary)==NULL){
-				ret=read(fd,buffer,BUFSIZE);
+				ret=recv(fd,buffer,BUFSIZE,0);
 				ptr=buffer;
+				buffer[ret]=0;
+				//printf("======\n%s\n======\n",buffer);
 			}
 				
 		}else if(browser==2){//firefox
-			
+			buffer[ret]=0;
 		}
 		
 		body_start=strstr(ptr,boundary);
-		
+		body_start-=2;
+		//printf("%s\n",body_start);
 		ptr=strstr(buffer,"filename=\"");//讀取檔名	
 		str=strstr(ptr+10,"\"");
 		strncpy(file,ptr+10,(int)(str-ptr)-10);
@@ -138,25 +139,39 @@ void handle_socket(int fd){
 		ptr=strstr(ptr+1,"\r\n");
 		ptr+=4;
 		
-		
-		file_len=file_len-(ptr-body_start);
-		file_len-=(strlen(boundary)+2);
-		
+		file_len=file_len-(ptr-body_start);//去頭
+		file_len-=(strlen(boundary)+8);//去尾 \r\n----\r\n
 
 		long temp_count=ret-(ptr-buffer);
-		char temp_local[100]="./img/";
+		printf("%d\n",temp_count);
+		char temp_local[100]="./file/";
+		int fault_tolerance=0;
 		strcat(temp_local,file);
-		FILE* write_file=fopen(temp_local,"w+");
-		if(strstr(ptr,boundary))temp_count-=(strlen(boundary)+2);
+		FILE* write_file=fopen(temp_local,"wb");
+		if(strstr(ptr,boundary))temp_count-=(strlen(boundary)+8);
+		ptr[1219]=15;
 		fwrite(ptr,1,temp_count,write_file);
 		file_len-=temp_count;
 		fflush(write_file);
-		while(file_len>0 && (ret=read(fd,buffer,(file_len>BUFSIZE?BUFSIZE:file_len)))!=0){
-			fwrite(buffer,1,(file_len>BUFSIZE?BUFSIZE:file_len),write_file);
-			file_len-=file_len>BUFSIZE?BUFSIZE:file_len;
+		while(file_len>0 && (ret=recv(fd,buffer,(file_len>BUFSIZE?BUFSIZE:file_len),0))!=0){
+			fwrite(buffer,1,ret,write_file);
+			file_len-=ret;
 			fflush(write_file);
-			//printf("this:%ld\tremain:%ld\n",ret,file_len);
+			fault_tolerance=1;
+			
 		}
+		if(fault_tolerance){
+			for(int k=0;k<30;k++){
+				ret=recv(fd,buffer,1,0);
+				if(buffer[0]!='\r' && ret!=0){
+					fwrite(buffer,1,ret,write_file);
+					fflush(write_file);
+				}else{
+					break;
+				}
+			}
+		}
+		
 		fclose(write_file);
 		
 	}
@@ -187,7 +202,7 @@ void handle_socket(int fd){
 		write(fd, "Failed to open file", 19);
 		printf("open %s error\n\n\n",&goal[1]);
 	}
-  
+	
 	//傳回瀏覽器成功碼 200 和內容的格式 
 	sprintf(buffer,"HTTP/1.1 200 OK\r\nContent-Type: %s\r\n\r\n", fstr);
 	//printf("%s\n",buffer);
