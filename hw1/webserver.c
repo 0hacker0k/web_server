@@ -29,7 +29,7 @@ struct {
 	{0,0} };
 
 void handle_socket(int fd){
-	int file_fd, buflen, len;
+	long int file_fd, buflen, len;
 	long ret;
 	char * fstr;
 	unsigned char buffer[BUFSIZE+1];
@@ -52,7 +52,7 @@ void handle_socket(int fd){
 	}else if(strstr(buffer,"Chrome")){
 		browser=1;
 	}
-	buffer[BUFSIZE-1]=0;
+	buffer[BUFSIZE]=0;
 	if (ret > 0)
 		buffer[ret] = 0;
 	else
@@ -95,7 +95,7 @@ void handle_socket(int fd){
 		if(access("./file",F_OK)){
 			mkdir("./file",509);
 		}
-		long file_len;
+		long int file_len;
 		char filelenstr[20];
 		char boundary[100];
 		unsigned char* temptr;
@@ -123,7 +123,12 @@ void handle_socket(int fd){
 			}
 				
 		}else if(browser==2){//firefox
-			buffer[ret]=0;
+			if(strstr(ptr,boundary)==NULL){
+				ret=recv(fd,buffer,BUFSIZE,0);
+				ptr=buffer;
+				buffer[ret]=0;
+				//printf("======\n%s\n======\n",buffer);
+			}
 		}
 		
 		body_start=strstr(ptr,boundary);
@@ -142,14 +147,18 @@ void handle_socket(int fd){
 		file_len=file_len-(ptr-body_start);//去頭
 		file_len-=(strlen(boundary)+8);//去尾 \r\n----\r\n
 
-		long temp_count=ret-(ptr-buffer);
-		printf("%d\n",temp_count);
+		long int temp_count=ret-(ptr-buffer);
+		printf("ret=%ld\n",ret);
+		printf("ptr-buffer=%ld\n",ptr-buffer);
+		printf("buffer=>%s\n",buffer);
+		
+		
 		char temp_local[100]="./file/";
 		int fault_tolerance=0;
 		strcat(temp_local,file);
 		FILE* write_file=fopen(temp_local,"wb");
 		if(strstr(ptr,boundary))temp_count-=(strlen(boundary)+8);
-		ptr[1219]=15;
+		//ptr[1219]=15;
 		fwrite(ptr,1,temp_count,write_file);
 		file_len-=temp_count;
 		fflush(write_file);
@@ -158,7 +167,6 @@ void handle_socket(int fd){
 			file_len-=ret;
 			fflush(write_file);
 			fault_tolerance=1;
-			
 		}
 		if(fault_tolerance){
 			for(int k=0;k<30;k++){
