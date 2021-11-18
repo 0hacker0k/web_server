@@ -148,11 +148,6 @@ void handle_socket(int fd){
 		file_len-=(strlen(boundary)+8);//去尾 \r\n----\r\n
 
 		long int temp_count=ret-(ptr-buffer);
-		printf("ret=%ld\n",ret);
-		printf("ptr-buffer=%ld\n",ptr-buffer);
-		printf("buffer=>%s\n",buffer);
-		
-		
 		char temp_local[100]="./file/";
 		int fault_tolerance=0;
 		strcat(temp_local,file);
