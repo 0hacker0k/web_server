@@ -110,13 +110,38 @@ void* playinroom(void *d){
 	fd_set readfds;
 	int ret;
 	int status=0;//遊玩中
+	int ainum;
 	while(1){
 		FD_ZERO(&readfds);
 		FD_SET(p1fd, &readfds);
 		if(p2fd!=-1){
 			FD_SET(p2fd, &readfds);
 		}
-		int has_rd=select(max+1, &readfds, NULL, NULL, 0);
+		int has_rd;
+		printf("%d %d\n",turn,p2fd);
+		if(turn==1 && p2fd==-1){
+			has_rd=1;
+			//AI
+			int m=rand()%3;
+			int n=rand()%3;
+			int countnum=0;
+			while(table[m][n]!=-1 && countnum<=9){
+				countnum++;
+				n++;
+				if(n==3){
+					n=0;
+					m++;
+				}if(m==3){
+					m=0;
+				}
+			}
+			if(countnum<=9){
+				ainum=n*3+m+1;
+			}content[0]=0;
+		}else{
+			has_rd=select(max+1, &readfds, NULL, NULL, 0);
+		}
+		
 		if(has_rd==-1){//監聽set
 			fprintf(logfd,"%s %s %d\n",ctime(&now),"error in select",errno);
 			perror("select");
@@ -134,8 +159,20 @@ void* playinroom(void *d){
 				ano=p1;
 				getfd=p2fd;
 				anofd=p1fd;
+			}else if(p2fd==-1){
+				get=p1;
+				ano=p1;
+				getfd=p1fd;
+				anofd=p1fd;
 			}
-			ret=read(getfd,buffer,sizeof(buffer));
+			if(!(turn==1 && p2fd==-1)){
+				if(p2fd==-1)
+					ret=read(p1fd,buffer,sizeof(buffer));
+				else
+					ret=read(getfd,buffer,sizeof(buffer));
+			}else{
+				ret=1;
+			}
 			if(ret==0){
 				sprintf(buffer,"/1 Your opponent is offline.\n");
 				if(p2fd!=-1){
@@ -147,11 +184,11 @@ void* playinroom(void *d){
 				get->token[0]=0;
 				if(p2fd!=-1){
 					ano->status=1;
-				}
+				}printf("ret:%d\n",ret);
 				break;
 			}
-			sscanf(buffer,"%s %s",token,content);
-			if(strcmp(token,get->token)!=0){
+			if(!(turn==1 && p2fd==-1))sscanf(buffer,"%s %s",token,content);
+			if(strcmp(token,get->token)!=0 && !(turn==1 && p2fd==-1)){
 				sprintf(buffer,"/0 Your certificate has expired.\n");
 				write(getfd,buffer,sizeof(buffer));
 				shutdown(getfd,SHUT_WR);
@@ -166,6 +203,7 @@ void* playinroom(void *d){
 				if(p2fd!=-1){
 					ano->status=1;
 				}
+				
 				break;
 			}
 			if((status==1 || status==2) && (strcmp(content,"N")==0 || strcmp(content,"n")==0)){
@@ -235,16 +273,24 @@ void* playinroom(void *d){
 				}
 			}int num;
 			if(x==0){
-				num=atoi(content);
+				if(content[0]!=0)
+					num=atoi(content);
+				else
+					num=ainum;
 				if(num>9 || num<1) x=1;
 			}
 			if(x==1){//有其他文字 或數字不合理 故判斷為聊天
-				sprintf(buffer,"/2 %s: %s\n",ano->account,content+0);
-				write(anofd,buffer,sizeof(buffer));
+				if(p2fd!=-1){
+					sprintf(buffer,"/2 %s: %s\n",ano->account,content);
+					write(anofd,buffer,sizeof(buffer));
+				}else{
+					sprintf(buffer,"/2 %s: %s\n","AI",content);
+					write(getfd,buffer,sizeof(buffer));
+				}
 				continue;
 			}else{//下棋
 				if(status!=0)continue;
-				if((turn==0 && get==p2) || (turn==1 && get==p1)){
+				if((turn==0 && get==p2) || (turn==1 && get==p1 && p2fd!=-1)){
 					sprintf(buffer,"/2 This is not your turn.\n");
 					write(getfd,buffer,sizeof(buffer));
 					continue;
@@ -276,47 +322,9 @@ void* playinroom(void *d){
 						}sprintf(temp,"\n");
 						strcat(buffer,temp);
 					}
+					sprintf(temp,"\n");
+					strcat(buffer,temp);
 					turn=(turn==0)?1:0;
-					if(p2fd==-1){//AI
-						m=rand()%3;
-						n=rand()%3;
-						int countnum=0;
-						while(table[m][n]!=-1 && countnum<=9){
-							countnum++;
-							n++;
-							if(n==3){
-								n=0;
-								m++;
-							}if(m==3){
-								m=0;
-							}
-						}
-						if(countnum<=9){
-							table[m][n]=(turn==first)?0:1;
-							sprintf(buffer,"/2 ");
-							for(int i=0;i<3;i++){
-								for(int j=0;j<3;j++){
-									if(table[i][j]==-1){
-										sprintf(temp," ");
-										strcat(buffer,temp);
-									}else if(table[i][j]==0){
-										sprintf(temp,"O");
-										strcat(buffer,temp);
-									}else if(table[i][j]==1){
-										sprintf(temp,"X");
-										strcat(buffer,temp);
-									}
-									if(j<2){
-										sprintf(temp,"|");
-										strcat(buffer,temp);
-									}
-								}sprintf(temp,"\n");
-								strcat(buffer,temp);
-							}
-							turn=(turn==0)?1:0;
-						}
-						
-					}
 				}
 			}x=0;
 			if(table[0][0]!=-1){
@@ -362,6 +370,7 @@ void* playinroom(void *d){
 					}else{
 						status++;
 					}
+					if(p2fd==-1)buffer2[0]=0;
 					sprintf(temp,"You lost the game...\nDo you want to play again?(type \'Y\' to accept, \'N\' to refuse)\n");
 					strcat(buffer2,temp);
 					write(p1fd,buffer2,sizeof(buffer2));
@@ -391,30 +400,31 @@ void* playinroom(void *d){
 				}
 			}
 		}
-	}pthread_exit(NULL);
+	}
+	pthread_exit(NULL);
 }
 void* child(void* data) {
 	pthread_detach(pthread_self());//讓parent不用等待
-	int *fd = (int*) data; // 取得輸入資料
+	int fd = *((int*) data); // 取得輸入資料
 	char buffer[BUFSIZE];
 	char temp[BUFSIZE];
-	int ret=read(*fd,buffer,sizeof(buffer));
+	int ret=read(fd,buffer,sizeof(buffer));
 	if(ret==0){
 		for(int i=0;i<usercount;i++){
-			if(*fd==usrlist[i].socketfd){
+			if(fd==usrlist[i].socketfd){
 				usrlist[i].status=0;
 				usrlist[i].socketfd=-1;
 				usrlist[i].token[0]=0;
 				fprintf(logfd,"%s %s %s\n",ctime(&now),usrlist[i].account,"has left");
-				close(*fd);
+				close(fd);
 			}
 		}
 		pthread_exit(NULL);
 	}
 	buffer[ret]=0;
-	//printf("%d\n",*fd);
+	//printf("%d\n",fd);
 	//printf("%s\n",);
-	fprintf(logfd,"%s get %s from %d\n",ctime(&now),buffer,*fd);
+	fprintf(logfd,"%s get %s from %d\n",ctime(&now),buffer,fd);
 	char account[30],content[50],token[50],command[7];
 	sscanf(buffer,"%s %s %s %s",token,account,command,content);
 	int status=1;
@@ -432,43 +442,53 @@ void* child(void* data) {
 					}
 					usrlist[i].status=-1;
 					srand(time(NULL));
-					usrlist[i].socketfd=*fd;
+					usrlist[i].socketfd=fd;
 					sprintf(usrlist[i].token,"%d",myhash(account)+rand()%323);
 					sprintf(buffer,"/3 ");
 					strcat(buffer,usrlist[i].token);
-					write(*fd,buffer,strlen(buffer));
+					write(fd,buffer,strlen(buffer));
 					
 					shutdown(tempnum,SHUT_WR);
 					close(tempnum);
 					usrlist[i].status=1;
 				}else{
-					write(*fd,"/0 Password error.\n",19);
-					shutdown(*fd,SHUT_WR);
-					close(*fd);
+					write(fd,"/0 Password error.\n",19);
+					shutdown(fd,SHUT_WR);
+					close(fd);
 				}
 			}
 		}if(status==1){
-			write(*fd,"/0 Can't find the account.\n",27);
-			shutdown(*fd,SHUT_WR);
-			close(*fd);
+			write(fd,"/0 Can't find the account.\n",27);
+			shutdown(fd,SHUT_WR);
+			close(fd);
 		}
 	}else if(strcmp(command,"signup")==0){
-		usercount+=1;
-		usrlist[usercount-1].id=usercount;
-		strcpy(usrlist[usercount-1].account,account);
-		sprintf(usrlist[usercount-1].password,"%d",myhash2(content));
-		usrlist[usercount-1].status=1;
-		usrlist[usercount-1].socketfd==*fd;
-		sprintf(usrlist[usercount-1].token,"%d",myhash(account)+rand()%323);
-		FILE* wtfd=fopen("user.txt","r+");
-		fseek(wtfd,0,SEEK_END);
-		fprintf(wtfd,"%d %s %s\n",usrlist[usercount-1].id,usrlist[usercount-1].account,usrlist[usercount-1].password);
-		fseek(wtfd,0,SEEK_SET);
-		fprintf(wtfd,"%d\n",usercount);
-		fclose(wtfd);
-		sprintf(buffer,"/3 ");
-		strcat(buffer,usrlist[usercount-1].token);
-		write(*fd,buffer,strlen(buffer));
+		int x=1;
+		for(int i=0;i<usercount;i++){
+			if(strcmp(usrlist[i].account,account)==0){
+				x=0;
+				break;
+			}
+		}
+		if(x){
+			usercount+=1;
+			usrlist[usercount-1].id=usercount;
+			strcpy(usrlist[usercount-1].account,account);
+			sprintf(usrlist[usercount-1].password,"%d",myhash2(content));
+			usrlist[usercount-1].status=1;
+			usrlist[usercount-1].socketfd=fd;
+			sprintf(usrlist[usercount-1].token,"%d",myhash(account)+rand()%323);
+			FILE* wtfd=fopen("user.txt","r+");
+			fseek(wtfd,0,SEEK_END);
+			fprintf(wtfd,"%d %s %s\n",usrlist[usercount-1].id,usrlist[usercount-1].account,usrlist[usercount-1].password);
+			fseek(wtfd,0,SEEK_SET);
+			fprintf(wtfd,"%d\n",usercount);
+			fclose(wtfd);
+			sprintf(buffer,"/3 ");
+			strcat(buffer,usrlist[usercount-1].token);
+			write(fd,buffer,strlen(buffer));
+		}
+		
 	}else{
 		for(int i=0;i<usercount;i++){//驗證
 			if(token[0]==0){
@@ -485,25 +505,25 @@ void* child(void* data) {
 			}
 		}
 		if(status==-1){//有憑證 有帳號 憑證錯誤
-			write(*fd,"/0 Your certificate has expired.\n",74);
-			shutdown(*fd,SHUT_WR);
-			close(*fd);
+			write(fd,"/0 Your certificate has expired.\n",74);
+			shutdown(fd,SHUT_WR);
+			close(fd);
 		}else if(status==1){//有憑證 沒帳號
-			write(*fd,"/0 No such account.\n",20);
-			shutdown(*fd,SHUT_WR);
-			close(*fd);
+			write(fd,"/0 No such account.\n",20);
+			shutdown(fd,SHUT_WR);
+			close(fd);
 		}else if(status==-2){//沒有憑證
-			write(*fd,"/0 You must log in first.\n",26);
-			shutdown(*fd,SHUT_WR);
-			close(*fd);
+			write(fd,"/0 You must log in first.\n",26);
+			shutdown(fd,SHUT_WR);
+			close(fd);
 		}else{
 			if(strcmp(command,"logout")==0){//登出
-				write(*fd,"/2 ",3);
+				write(fd,"/2 ",3);
 				usrlist[id].status=0;
 				usrlist[id].socketfd=-1;
 				usrlist[id].token[0]=0;
-				shutdown(*fd,SHUT_WR);
-				close(*fd);
+				shutdown(fd,SHUT_WR);
+				close(fd);
 			}else if(strcmp(command,"list")==0){
 				sprintf(buffer,"/2 ");
 				int x=0;
@@ -524,13 +544,13 @@ void* child(void* data) {
 				}if(x==0){
 					sprintf(temp,"No players are online except you.\n");
 					strcat(buffer,temp);
-				}write(*fd,buffer,sizeof(buffer));
+				}write(fd,buffer,sizeof(buffer));
 				usrlist[id].status=1;
 			}else if(strcmp(command,"plist")==0){
 				sprintf(buffer,"/2 ");
 				int x=0;
 				for(int i=0;i<usercount;i++){
-					if(usrlist[i].socketfd==*fd)continue;
+					if(usrlist[i].socketfd==fd)continue;
 					if(usrlist[i].status==1 || usrlist[i].status==-1){
 						if(x==0){
 							sprintf(temp,"These are the players you can challenge.\n");
@@ -540,11 +560,12 @@ void* child(void* data) {
 						sprintf(temp,"\tid:[ %d ]\t%s\tonline\n",i,usrlist[i].account);
 						strcat(buffer,temp);
 					}
-				}if(x==0){
-					sprintf(buffer,"/1 ");
-					sprintf(temp,"No players are online except you.\n");
+				}
+				if(x==0){
+					sprintf(buffer,"/2 ");//////////////////////////////////////////////////////////////////////
+					sprintf(temp,"No players are online except you and AI.\n");
 					strcat(buffer,temp);
-				}write(*fd,buffer,sizeof(buffer));
+				}write(fd,buffer,sizeof(buffer));
 				usrlist[id].status=1;
 			}else if(strcmp(command,"play")==0){
 				int len=strlen(content);
@@ -564,17 +585,17 @@ void* child(void* data) {
 								sprintf(buffer,"/1 ");
 								sprintf(temp,"%s is not online.\n",usrlist[i].account);
 								strcat(buffer,temp);
-								write(*fd,buffer,sizeof(buffer));
+								write(fd,buffer,sizeof(buffer));
 							}else if(usrlist[i].status==2){//玩家已在遊戲中
 								sprintf(buffer,"/1 ");
 								sprintf(temp,"%s is already in another game.\n",usrlist[i].account);
 								strcat(buffer,temp);
-								write(*fd,buffer,sizeof(buffer));
+								write(fd,buffer,sizeof(buffer));
 							}else if(strcmp(usrlist[i].account,account)==0){//自己挑戰自己
 								sprintf(buffer,"/1 ");
 								sprintf(temp,"You can't challenge yourself.\n");
 								strcat(buffer,temp);
-								write(*fd,buffer,sizeof(buffer));
+								write(fd,buffer,sizeof(buffer));
 							}else{
 								sprintf(buffer,"/4 ");
 								sprintf(temp,"%s",account);
@@ -593,17 +614,17 @@ void* child(void* data) {
 								sprintf(buffer,"/1 ");
 								sprintf(temp,"%s is not online.\n",usrlist[i].account);
 								strcat(buffer,temp);
-								write(*fd,buffer,sizeof(buffer));
+								write(fd,buffer,sizeof(buffer));
 							}else if(usrlist[i].status==2){//玩家已在遊戲中
 								sprintf(buffer,"/1 ");
 								sprintf(temp,"%s is already in another game.\n",usrlist[i].account);
 								strcat(buffer,temp);
-								write(*fd,buffer,sizeof(buffer));
+								write(fd,buffer,sizeof(buffer));
 							}else if(strcmp(usrlist[i].account,account)==0){//自己挑戰自己
 								sprintf(buffer,"/1 ");
 								sprintf(temp,"You can't challenge yourself.\n");
 								strcat(buffer,temp);
-								write(*fd,buffer,sizeof(buffer));
+								write(fd,buffer,sizeof(buffer));
 							}else{
 								sprintf(buffer,"/4 ");
 								sprintf(temp,"%s",account);
@@ -614,15 +635,15 @@ void* child(void* data) {
 						}
 					}
 				}
-				if(x!=3 && atoi(content)!=-1){//沒有這個玩家
+				if(x!=3 && (strcmp(content,"AI")==0 || atoi(content)!=-1)){//沒有這個玩家
 					sprintf(buffer,"/1 ");
 					sprintf(temp,"No such players found.\n");
 					strcat(buffer,temp);
-					write(*fd,buffer,sizeof(buffer));
+					write(fd,buffer,sizeof(buffer));
 				}
-				if(atoi(content)==-1){
+				if(strcmp(content,"AI")==0 || atoi(content)==-1){
 					sprintf(buffer,"/2 ");
-					write(*fd,buffer,sizeof(buffer));
+					write(fd,buffer,sizeof(buffer));
 					pthread_t t; // 宣告 pthread 變數
 					struct playerpair player;
 					player.p1=&(usrlist[id]);
@@ -644,7 +665,7 @@ void* child(void* data) {
 						break;
 					}
 				}sprintf(buffer,"/2 ");
-				write(*fd,buffer,sizeof(buffer));
+				write(fd,buffer,sizeof(buffer));
 				usrlist[id].status=1;
 			}else if(strcmp(command,"ok")==0){//同意遊戲
 				int x=0;
@@ -665,11 +686,11 @@ void* child(void* data) {
 					sprintf(buffer,"/1 ");
 					sprintf(temp,"Invitation expired.\n");
 					strcat(buffer,temp);
-					write(*fd,buffer,sizeof(buffer));
+					write(fd,buffer,sizeof(buffer));
 					usrlist[id].status=1;
 				}else{
 					sprintf(buffer,"/2 ");
-					write(*fd,buffer,sizeof(buffer));
+					write(fd,buffer,sizeof(buffer));
 					pthread_t t; // 宣告 pthread 變數
 					struct playerpair player;
 					player.p1=&(usrlist[id]);
@@ -725,7 +746,7 @@ void* check(void* data) {
 			int has_rd=select(max+1, &readfds, NULL, NULL, &tv);
 			if(has_rd==-1){//監聽set
 				fprintf(logfd,"%s %s %d\n",ctime(&now),"error in select",errno);
-				perror("select");
+				//perror("select");
 			}else if(has_rd>0){
 				//printf("get something.\n");
 				for(int i=0;i<usercount;i++){//看看是誰可以讀取了
@@ -786,17 +807,22 @@ int main(int argc , char *argv[]){
 		usrlist[i].token[0]=0;
 	}
 	fclose(rdfd);
-	pthread_t t; // 宣告 pthread 變數
-	pthread_create(&t, NULL, check, NULL);
+	pthread_t t1; // 宣告 pthread 變數
+	pthread_create(&t1, NULL, check, NULL);
 	time(&now);
 	
 	fprintf(logfd,"%s %s\n",ctime(&now),"server operation access");
+	int cfd;
     while(1){
     	if((clientfd = accept(sockfd,(struct sockaddr*) &clientInfo, &addrlen))<0){
     		fprintf(logfd,"%s %s\n",ctime(&now),"accept error");
     	}
-    	pthread_create(&t, NULL, child, &clientfd);
-    	
+    	cfd=clientfd;
+    	//printf("%d\n",clientfd);
+    	//close(cfd);
+    	pthread_t t;
+    	pthread_create(&t, NULL, child, &cfd);
+    	pthread_detach(t);
         /*fd=fork();
         if(fd<0){
         	printf("fork error\n");

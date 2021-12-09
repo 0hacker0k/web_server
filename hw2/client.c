@@ -42,6 +42,7 @@ void sockcreate(char *buffer){
 	int err = connect(sockfd,(struct sockaddr *)&info,sizeof(info));
     if(err==-1){
         printf("Connection error");
+        return ;
     }
 	send(sockfd,buffer,strlen(buffer),0);
     printf("Connection established.\n");
@@ -221,7 +222,7 @@ int main(int argc , char *argv[]){
 							x=1;
 							break;
 						}
-					}if(x){
+					}if(x==0){
 						printf("Your account should contain at least one English letter.\n");
 					}else{
 						break;
