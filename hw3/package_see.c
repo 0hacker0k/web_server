@@ -120,7 +120,9 @@ void sec_to_time(int time,int *year,int *month,int *day,int *hour,int *min,int *
 	*min=time%3600/60;
 	*sec=time%3600%60;
 }
+int all_count=0;
 void callback(u_char *args, const struct pcap_pkthdr *header,const u_char *packet){
+	all_count++;
 	int time=header->ts.tv_sec;
 	int day;
 	int year;
@@ -129,25 +131,36 @@ void callback(u_char *args, const struct pcap_pkthdr *header,const u_char *packe
 	int hour;
 	int min;
 	sec_to_time(time,&year,&month,&day,&hour,&min,&sec);
-	printf("%d/%d/%d %d:%d:%d\n",year,month,day,hour,min,sec);
+	printf("-------------------------------------------\n");
+	printf("%d\t┐\n",all_count);
+	printf("\t├Time: %d/%d/%d %d:%d:%d\n",year,month,day,hour,min,sec);
 	const struct sniff_ethernet *ethernet = (struct sniff_ethernet*)(packet);
-	printf("Src mac:");
+	printf("\t├Src mac:");
 	for(int i=0;i<=4;i++){
 		printf("%02x:",ethernet->ether_shost[i]);
 	}printf("%02x\n",ethernet->ether_shost[5]);
-	printf("Dst mac:");
+	printf("\t├Dst mac:");
 	for(int i=0;i<=4;i++){
 		printf("%02x:",ethernet->ether_dhost[i]);
 	}printf("%02x\n",ethernet->ether_dhost[5]);
 	int type=htons(ethernet->ether_type);
+	printf("\t└");
+	int x=1;
 	if(type==2048){
-		printf("IPv4\n");
+		printf("IPv4");
+	}else if(type==2054){
+		x=0;
+		printf("ARP");
+	}else if(type==34525){
+		printf("IPv6");
+	}else{
+		x=0;
+		printf("unknown");
 	}
-	if(type==2054){
-		printf("ARP\n");
-	}
-	if(type==34525){
-		printf("IPv6\n");
+	if(x==0){
+		printf("\n");
+	}else{
+		printf("\t┐\n");
 	}
 	if(type==2048 || type==34525){
 		const struct sniff_ip *ip=(struct sniff_ip*)(packet+SIZE_ETHERNET);
@@ -157,17 +170,27 @@ void callback(u_char *args, const struct pcap_pkthdr *header,const u_char *packe
 		long temp2=ip->ip_dst.s_addr;
 		inet_ntop(AF_INET,(void*)&(temp), src_ip, 16);
 		inet_ntop(AF_INET,(void*)&(temp2), dst_ip, 16);
-		printf("Src:%s Dst:%s\n",src_ip,dst_ip);
+		printf("\t\t├ID:%d\n",htons(ip->ip_id));
+		printf("\t\t├Src:%s\n\t\t├Dst:%s\n",src_ip,dst_ip);
+		printf("\t\t├Total Length:%d\n",htons(ip->ip_len));
+		printf("\t\t├Time to Live:%d\n",ip->ip_ttl);
+		printf("\t\t└");
+		x=1;
 		if(ip->ip_p==17){//UDP
 			struct sniff_udp* udp = (struct sniff_udp*)(packet + SIZE_ETHERNET + size_ip);
-			printf("Type: UDP\n");
-			printf("Src port:%d Dst port:%d\n",htons(udp->uh_sport),htons(udp->uh_dport));
+			printf("Type: UDP\t┐\n");
+			printf("\t\t\t\t├Src port:%d\n\t\t\t\t└Dst port:%d\n",htons(udp->uh_sport),htons(udp->uh_dport));
 		}else if(ip->ip_p==6){//TCP
 			struct sniff_tcp* tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
-			printf("Type: TCP\n");
-			printf("Src port:%d Dst port:%d\n",htons(tcp->th_sport),htons(tcp->th_dport));
+			printf("Type: TCP\t┐\n");
+			printf("\t\t\t\t├Src port:%d\n\t\t\t\t└Dst port:%d\n",htons(tcp->th_sport),htons(tcp->th_dport));
+		}else if(ip->ip_p==1){
+			printf("Type: ICMP\n");
+		}else{
+			printf("Type: unknown (%d)\n",ip->ip_p);
 		}
-	}printf("\n");
+	}
+	printf("-------------------------------------------\n");
 	
 }
 int main(int argc, char *argv[]){
@@ -186,7 +209,7 @@ int main(int argc, char *argv[]){
 		fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
 		return(2);
 	}
-	int test=pcap_loop(handle,100,callback, NULL);
+	int test=pcap_loop(handle,2147483647,callback, NULL);
 	if(test==-1){
 		printf("error\n");
 	}
